@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { UploadResponse, ImageInfo } from '@/app/types';
+import { useToast } from '@/app/hooks';
 
 export const ImageUploader: React.FC = () => {
   const [uploadedImages, setUploadedImages] = useState<ImageInfo[]>([]);
@@ -9,6 +10,7 @@ export const ImageUploader: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   const handleFileUpload = useCallback(async (file: File) => {
     if (!file) return;
@@ -17,32 +19,42 @@ export const ImageUploader: React.FC = () => {
     const formData = new FormData();
     formData.append('file', file);
 
+    // プロミス型のトースト通知
+    const uploadPromise = fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    }).then(async (response) => {
+      const result: UploadResponse = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'アップロードに失敗しました');
+      }
+      
+      return result;
+    });
+
     try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
+      const result = await toast.promise(uploadPromise, {
+        loading: `${file.name} をアップロード中...`,
+        success: (data) => `${data.filename} のアップロードが完了しました`,
+        error: (err) => `アップロードエラー: ${err.message}`,
       });
 
-      const result: UploadResponse = await response.json();
-
-      if (result.success) {
-        const newImage: ImageInfo = {
-          id: Date.now().toString(),
-          url: result.imageUrl,
-          filename: result.filename,
-          uploadedAt: new Date().toLocaleString(),
-        };
-        
-        setUploadedImages(prev => [...prev, newImage]);
-      } else {
-        alert(result.error);
-      }
-    } catch {
-      alert('アップロードに失敗しました');
+      const newImage: ImageInfo = {
+        id: Date.now().toString(),
+        url: result.imageUrl,
+        filename: result.filename,
+        uploadedAt: new Date().toLocaleString(),
+      };
+      
+      setUploadedImages(prev => [...prev, newImage]);
+    } catch (error) {
+      // エラーはtoast.promiseで既に表示されているため、追加処理不要
+      console.error('Upload error:', error);
     } finally {
       setUploading(false);
     }
-  }, []);
+  }, [toast]);
 
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -72,12 +84,13 @@ export const ImageUploader: React.FC = () => {
 
   const getImageUrl = useCallback((originalUrl: string): string => {
     if (originalUrl.startsWith('/')) {
-      return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}${originalUrl}`;
+      // nginxの静的ファイルサーバー（localhost:8080）を参照
+      return `http://localhost:8080${originalUrl}`;
     }
     return originalUrl;
   }, []);
 
-  const copyToClipboard = useCallback(async (url: string, imageId: string) => {
+  const copyToClipboard = useCallback(async (url: string, imageId: string, filename: string) => {
     const fullUrl = getImageUrl(url);
     
     try {
@@ -109,12 +122,14 @@ export const ImageUploader: React.FC = () => {
         setCopySuccess(null);
       }, 2000);
       
+      // トースト通知でコピー成功を表示
+      toast.success(`${filename} のURLをコピーしました`);
+      
     } catch (error) {
       console.error('コピーエラー:', error);
-      // Better error handling - could use toast notification
-      alert(`コピーに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error(`コピーに失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [getImageUrl]);
+  }, [getImageUrl, toast]);
 
   const openFileDialog = useCallback(() => {
     fileInputRef.current?.click();
@@ -251,7 +266,7 @@ export const ImageUploader: React.FC = () => {
                         新しいタブで開く
                       </a>
                       <button
-                        onClick={() => copyToClipboard(image.url, image.id)}
+                        onClick={() => copyToClipboard(image.url, image.id, image.filename)}
                         className={`flex-1 text-center text-sm py-2 px-3 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 ${
                           copySuccess === image.id
                             ? 'text-green-300 bg-green-900/40 focus:ring-green-500'

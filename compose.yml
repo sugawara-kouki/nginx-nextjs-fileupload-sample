@@ -1,22 +1,4 @@
 services:
-  nextjs-app:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: nextjs-file-upload
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      # ✅ 統一：両方とも同じローカルディレクトリをマウント
-      - ./shared-uploads:/app/uploads:rw
-    environment:
-      - NODE_ENV=development
-    command: npm run dev
-    networks:
-      - app-network
-
   nginx:
     build:
       context: ./nginx
@@ -25,10 +7,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # ✅ 同じローカルディレクトリを同じパスにマウント
       - ./shared-uploads:/usr/share/nginx/html/uploads:ro
-    depends_on:
-      - nextjs-app
     restart: unless-stopped
     networks:
       - app-network
